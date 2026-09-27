@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flutter Widget Tree - Calculadora</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117;
+            color: #e6edf3;
+            overflow: hidden;
+        }
+
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        /* Canvas Pan/Zoom container */
+        #viewport {
+            cursor: grab;
+            user-select: none;
+            width: 100vw;
+            height: calc(100vh - 70px);
+            position: relative;
+            overflow: hidden;
+            background-radial: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        #viewport:active {
+            cursor: grabbing;
+        }
+
+        #tree-container {
+            position: absolute;
+            transform-origin: 0 0;
+            transition: transform 0.08s ease-out;
+            padding: 100px;
+        }
+
+        /* SVG Connectors */
+        #svg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .tree-line {
+            stroke: #30363d;
+            stroke-width: 2px;
+            fill: none;
+            transition: all 0.3s ease;
+        }
+
+        .tree-line.highlighted {
+            stroke: #02569B;
+            stroke-width: 3px;
+        }
+
+        /* Node Cards */
+        .node-card {
+            position: relative;
+            z-index: 2;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            background: #161b22;
+            border: 1px solid #30363d;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .node-card:hover {
+            border-color: #58a6ff;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(2, 86, 155, 0.3);
+        }
+
+        /* Tag Styles */
+        .tag-app { background: rgba(2, 86, 155, 0.2); color: #40c4ff; border: 1px solid rgba(2, 86, 155, 0.5); }
+        .tag-stateful { background: rgba(171, 71, 188, 0.2); color: #e1bee7; border: 1px solid rgba(171, 71, 188, 0.5); }
+        .tag-stateless { background: rgba(78, 161, 211, 0.2); color: #81d4fa; border: 1px solid rgba(78, 161, 211, 0.5); }
+        .tag-layout { background: rgba(255, 152, 0, 0.15); color: #ffcc80; border: 1px solid rgba(255, 152, 0, 0.4); }
+        .tag-ui { background: rgba(76, 175, 80, 0.15); color: #a5d6a7; border: 1px solid rgba(76, 175, 80, 0.4); }
+        .tag-helper { background: rgba(158, 158, 158, 0.15); color: #e0e0e0; border: 1px solid rgba(158, 158, 158, 0.4); }
+
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0d1117;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #484f58;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen select-none">
+
+    <!-- Navbar Control Bar -->
+    <header class="h-[70px] bg-[#161b22] border-b border-[#30363d] px-6 flex items-center justify-between z-10 shadow-lg">
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+                <i class="fa-brands fa-flutter text-3xl text-[#02569B]"></i>
+                <span class="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                    Flutter Widget Tree
+                </span>
+            </div>
+            <span class="text-xs bg-[#21262d] text-gray-400 px-3 py-1 rounded-full border border-[#30363d]">
+                <i class="fa-solid fa-[#01579B] fa-calculator mr-1"></i> CalculadoraApp
+            </span>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex items-center space-x-3">
+            <div class="flex items-center bg-[#21262d] border border-[#30363d] rounded-lg p-1 space-x-1">
+                <button id="btn-zoom-in" title="Aumentar Zoom" class="p-2 hover:bg-[#30363d] rounded text-gray-300 transition">
+                    <i class="fa-solid fa-magnifying-glass-plus"></i>
+                </button>
+                <button id="btn-zoom-reset" title="Resetar Visualização" class="px-3 py-1 text-xs code-font hover:bg-[#30363d] rounded text-gray-300 transition">
+                    100%
+                </button>
+                <button id="btn-zoom-out" title="Diminuir Zoom" class="p-2 hover:bg-[#30363d] rounded text-gray-300 transition">
+                    <i class="fa-solid fa-magnifying-glass-minus"></i>
+                </button>
+            </div>
+
+            <button id="btn-expand-all" class="px-3 py-2 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-gray-200 text-xs font-semibold rounded-lg flex items-center gap-2 transition">
+                <i class="fa-solid fa-folder-open"></i> Expandir Tudo
+            </button>
+
+            <button id="btn-collapse-all" class="px-3 py-2 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-gray-200 text-xs font-semibold rounded-lg flex items-center gap-2 transition">
+                <i class="fa-solid fa-folder"></i> Recolher
+            </button>
+
+            <div class="h-6 w-[1px] bg-[#30363d]"></div>
+
+            <button id="btn-export" class="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs rounded-lg shadow-md flex items-center gap-2 transition transform hover:scale-105 active:scale-95">
+                <i class="fa-solid fa-download"></i> Baixar como Imagem (PNG)
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Interactive Viewport -->
+    <div id="viewport" class="flex-1">
+        <div id="tree-container">
+            <svg id="svg-canvas"></svg>
+            <div id="tree-root" class="relative"></div>
+        </div>
+    </div>
+
+    <!-- Floating Legend / Info Box -->
+    <div class="absolute bottom-4 left-4 bg-[#161b22]/90 backdrop-blur-md border border-[#30363d] rounded-xl p-4 shadow-2xl z-10 text-xs max-w-xs">
+        <h4 class="font-bold text-gray-200 mb-2 flex items-center gap-2">
+            <i class="fa-solid fa-layer-group text-blue-400"></i> Legenda dos Widgets
+        </h4>
+        <div class="grid grid-cols-2 gap-2 text-[11px]">
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> App Root</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span> StatefulWidget</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span> StatelessWidget</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Layout / Structure</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> UI / Leaf Element</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-gray-400"></span> Method / Pattern</div>
+        </div>
+        <p class="text-[10px] text-gray-400 mt-3 border-t border-[#30363d] pt-2">
+            💡 <b>Dica:</b> Arraste para mover, use o scroll para zoom e clique nas setas para expandir/recolher nós.
+        </p>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3 transition-all duration-300 transform translate-y-20 opacity-0 z-50">
+        <i class="fa-solid fa-circle-check text-lg"></i>
+        <span id="toast-message">Imagem gerada com sucesso!</span>
+    </div>
+
+    <script>
+        // Tree Data Structure
+        const widgetTreeData = {
+            name: "CalculadoraApp",
+            type: "StatelessWidget",
+            category: "app",
+            icon: "fa-mobile-screen",
+            details: "Raíz do Aplicativo (Define o ThemeData e MaterialApp)",
+            children: [
+                {
+                    name: "MaterialApp",
+                    type: "Widget Core",
+                    category: "app",
+                    icon: "fa-cubes",
+                    details: "Configura temas, títulos e rota inicial (home)",
+                    children: [
+                        {
+                            name: "CalculadoraHome",
+                            type: "StatefulWidget",
+                            category: "stateful",
+                            icon: "fa-arrows-rotate",
+                            details: "Gerencia os estados das expressões, cálculos e resultados",
+                            children: [
+                                {
+                                    name: "Scaffold",
+                                    type: "Layout",
+                                    category: "layout",
+                                    icon: "fa-window-maximize",
+                                    details: "Estrutura visual básica da tela (AppBar + Body)",
+                                    children: [
+                                        {
+                                            name: "AppBar",
+                                            type: "UI Bar",
+                                            category: "layout",
+                                            icon: "fa-heading",
+                                            children: [
+                                                {
+                                                    name: "Text ('Calculadora Flutter')",
+                                                    type: "Leaf Widget",
+                                                    category: "ui",
+                                                    icon: "fa-font"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            name: "Column",
+                                            type: "Layout Principal",
+                                            category: "layout",
+                                            icon: "fa-bars-staggered",
+                                            details: "Organização vertical da tela (Visor + Teclado)",
+                                            children: [
+                                                {
+                                                    name: "Expanded",
+                                                    type: "Flex Layout",
+                                                    category: "layout",
+                                                    details: "Expande para preencher a área restante do visor",
+                                                    children: [
+                                                        {
+                                                            name: "Container",
+                                                            type: "Styling",
+                                                            category: "layout",
+                                                            details: "Alinhamento no canto inferior direito com padding",
+                                                            children: [
+                                                                {
+                                                                    name: "Text (_resultado)",
+                                                                    type: "UI Output",
+                                                                    category: "ui",
+                                                                    icon: "fa-square-poll-horizontal",
+                                                                    details: "Exibe o número digitado ou resultado final"
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    name: "Column",
+                                                    type: "Grade Teclado",
+                                                    category: "layout",
+                                                    icon: "fa-table-cells",
+                                                    details: "Agrupa as 4 fileiras horizontais de botões",
+                                                    children: [
+                                                        createRowNode("Row 1: Botões ['7', '8', '9', '/']", ["7", "8", "9", "/"]),
+                                                        createRowNode("Row 2: Botões ['4', '5', '6', '*']", ["4", "5", "6", "*"]),
+                                                        createRowNode("Row 3: Botões ['1', '2', '3', '-']", ["1", "2", "3", "-"]),
+                                                        createRowNode("Row 4: Botões ['C', '0', '=', '+']", ["C", "0", "=", "+"])
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        // Helper to construct repetitive row node structures cleanly
+        function createRowNode(title, buttons) {
+            return {
+                name: title,
+                type: "Row Layout",
+                category: "layout",
+                icon: "fa-[#01579B] fa-[#02569B] fa-grip-lines",
+                children: [
+                    {
+                        name: `_buildBotao (${buttons.join(', ')}) × 4`,
+                        type: "Helper Function",
+                        category: "helper",
+                        icon: "fa-code",
+                        details: "Gera 4 botões customizados usando o padrão Expanded",
+                        children: buttons.map(btn => ({
+                            name: `Expanded → Padding → ElevatedButton → Text('${btn}')`,
+                            type: "Button Component",
+                            category: "ui",
+                            icon: "fa-square-check"
+                        }))
+                    }
+                ]
+            };
+        }
+
+        // --- Viewport Pan / Zoom State ---
+        let scale = 0.85;
+        let panX = 0;
+        let panY = 0;
+        let isDragging = false;
+        let startX = 0, startY = 0;
+
+        const viewport = document.getElementById('viewport');
+        const treeContainer = document.getElementById('tree-container');
+        const svgCanvas = document.getElementById('svg-canvas');
+
+        // Render Tree into HTML
+        function createTreeHTML(node, id = "node-0") {
+            const hasChildren = node.children && node.children.length > 0;
+            const categoryClass = `tag-${node.category || 'ui'}`;
+            
+            let html = `
+                <div class="flex flex-col items-center">
+                    <div id="${id}" class="node-card rounded-xl p-3 min-w-[200px] cursor-pointer" onclick="toggleNode('${id}')">
+                        <div class="flex items-center justify-between gap-2 mb-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${categoryClass}">
+                                ${node.type}
+                            </span>
+                            ${hasChildren ? `<i id="icon-${id}" class="fa-solid fa-chevron-down text-gray-400 text-xs transition-transform duration-300"></i>` : ''}
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid ${node.icon || 'fa-cube'} text-blue-400 text-sm"></i>
+                            <span class="code-font text-sm font-semibold text-gray-100">${node.name}</span>
+                        </div>
+                        ${node.details ? `<div class="text-[11px] text-gray-400 mt-1 border-t border-gray-800 pt-1">${node.details}</div>` : ''}
+                    </div>
+            `;
+
+            if (hasChildren) {
+                html += `<div id="children-${id}" class="flex gap-8 mt-12 relative transition-all duration-300">`;
+                node.children.forEach((child, index) => {
+                    html += createTreeHTML(child, `${id}-${index}`);
+                });
+                html += `</div>`;
+            }
+
+            html += `</div>`;
+            return html;
+        }
+
+        // Render Tree
+        const treeRoot = document.getElementById('tree-root');
+        treeRoot.innerHTML = createTreeHTML(widgetTreeData);
+
+        // Calculate and Draw Connecting Lines
+        function drawConnectors() {
+            // Update container size for SVG
+            const bounds = treeContainer.getBoundingClientRect();
+            svgCanvas.style.width = `${treeContainer.scrollWidth + 200}px`;
+            svgCanvas.style.height = `${treeContainer.scrollHeight + 200}px`;
+
+            let pathData = '';
+
+            function connectNodes(parentId) {
+                const parentEl = document.getElementById(parentId);
+                const childrenContainer = document.getElementById(`children-${parentId}`);
+
+                if (!childrenContainer || childrenContainer.style.display === 'none') return;
+
+                const parentRect = parentEl.getBoundingClientRect();
+                const containerRect = treeContainer.getBoundingClientRect();
+
+                // Bottom center of parent
+                const parentX = (parentRect.left + parentRect.width / 2 - containerRect.left) / scale;
+                const parentY = (parentRect.bottom - containerRect.top) / scale;
+
+                Array.from(childrenContainer.children).forEach((childWrapper, index) => {
+                    const childEl = childWrapper.firstElementChild;
+                    if (!childEl) return;
+
+                    const childRect = childEl.getBoundingClientRect();
+                    // Top center of child
+                    const childX = (childRect.left + childRect.width / 2 - containerRect.left) / scale;
+                    const childY = (childRect.top - containerRect.top) / scale;
+
+                    // Smooth Bezier Curve
+                    const midY = parentY + (childY - parentY) / 2;
+                    pathData += `M ${parentX} ${parentY} C ${parentX} ${midY}, ${childX} ${midY}, ${childX} ${childY} `;
+
+                    // Recurse for child
+                    const childId = childEl.id;
+                    connectNodes(childId);
+                });
+            }
+
+            connectNodes('node-0');
+            svgCanvas.innerHTML = `<path d="${pathData}" class="tree-line" />`;
+        }
+
+        // Toggle Node Expansion
+        window.toggleNode = function(id) {
+            const childrenContainer = document.getElementById(`children-${id}`);
+            const icon = document.getElementById(`icon-${id}`);
+
+            if (childrenContainer) {
+                if (childrenContainer.style.display === 'none') {
+                    childrenContainer.style.display = 'flex';
+                    if (icon) icon.style.transform = 'rotate(0deg)';
+                } else {
+                    childrenContainer.style.display = 'none';
+                    if (icon) icon.style.transform = 'rotate(-90deg)';
+                }
+                setTimeout(drawConnectors, 50);
+            }
+        };
+
+        // Update Viewport Matrix
+        function updateTransform() {
+            treeContainer.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+            document.getElementById('btn-zoom-reset').innerText = `${Math.round(scale * 100)}%`;
+            drawConnectors();
+        }
+
+        // Pan Events
+        viewport.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.node-card')) return;
+            isDragging = true;
+            startX = e.clientX - panX;
+            startY = e.clientY - panY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            panX = e.clientX - startX;
+            panY = e.clientY - startY;
+            updateTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Zoom Events
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomFactor = 0.08;
+            if (e.deltaY < 0) {
+                scale = Math.min(scale + zoomFactor, 2.0);
+            } else {
+                scale = Math.max(scale - zoomFactor, 0.3);
+            }
+            updateTransform();
+        });
+
+        // Controls Buttons
+        document.getElementById('btn-zoom-in').addEventListener('click', () => {
+            scale = Math.min(scale + 0.15, 2.0);
+            updateTransform();
+        });
+
+        document.getElementById('btn-[#01579B] btn-zoom-out')?.addEventListener('click', () => {}) ||
+        document.getElementById('btn-zoom-out').addEventListener('click', () => {
+            scale = Math.max(scale - 0.15, 0.3);
+            updateTransform();
+        });
+
+        document.getElementById('btn-zoom-reset').addEventListener('click', () => {
+            scale = 0.85;
+            centerTree();
+        });
+
+        // Center Tree in Viewport
+        function centerTree() {
+            const viewportRect = viewport.getBoundingClientRect();
+            panX = (viewportRect.width / 2) - 400;
+            panY = 60;
+            updateTransform();
+        }
+
+        // Expand / Collapse All
+        document.getElementById('btn-expand-all').addEventListener('click', () => {
+            document.querySelectorAll('[id^="children-"]').forEach(el => el.style.display = 'flex');
+            document.querySelectorAll('[id^="icon-"]').forEach(el => el.style.transform = 'rotate(0deg)');
+            setTimeout(drawConnectors, 50);
+        });
+
+        document.getElementById('btn-collapse-all').addEventListener('click', () => {
+            document.querySelectorAll('[id^="children-node-0"]').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('[id^="icon-node-0"]').forEach(el => el.style.transform = 'rotate(-90deg)');
+            setTimeout(drawConnectors, 50);
+        });
+
+        // Export to Image (PNG) Functionality
+        document.getElementById('btn-export').addEventListener('click', () => {
+            const btn = document.getElementById('btn-export');
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Gerando...`;
+
+            // Reset zoom for high resolution export
+            const currentScale = scale;
+            const currentPanX = panX;
+            const currentPanY = panY;
+
+            treeContainer.style.transform = 'none';
+
+            html2canvas(treeContainer, {
+                backgroundColor: '#0d1117',
+                scale: 2, // High DPI
+                useCORS: true
+            }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = 'flutter-widget-tree-calculadora.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+
+                // Restore Viewport
+                scale = currentScale;
+                panX = currentPanX;
+                panY = currentPanY;
+                updateTransform();
+
+                btn.innerHTML = `<i class="fa-solid fa-download"></i> Baixar como Imagem (PNG)`;
+
+                // Show Notification Toast
+                const toast = document.getElementById('toast');
+                toast.classList.remove('translate-y-20', 'opacity-0');
+                setTimeout(() => {
+                    toast.classList.add('translate-y-20', 'opacity-0');
+                }, 3000);
+            });
+        });
+
+        // Initial setup
+        window.onload = () => {
+            centerTree();
+            setTimeout(drawConnectors, 100);
+        };
+
+        window.addEventListener('resize', drawConnectors);
+    </script>
+</body>
+</html>

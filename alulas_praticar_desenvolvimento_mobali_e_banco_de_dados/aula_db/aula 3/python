@@ -1,0 +1,590 @@
+# ==============================================================================
+# ATIVIDADE PRÁTICA: LABORATÓRIO DE PROGRAMAÇÃO - BANCO DE DADOS
+# DATA: 27/08/2026
+# DESCRIÇÃO: Aplicação GUI para gerenciamento de Banco de Dados SQLite.
+#             Recria as tabelas do SQL Basics Cheat Sheet com no mínimo 30 IDs,
+#             permite o cadastro/exclusão de registros e a execução de
+#             consultas SQL através de uma interface interativa.
+# TECNOLOGIAS: Python 3, Tkinter (Interface Gráfica), SQLite3 (Banco de Dados)
+# ==============================================================================
+
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+
+def inicializar_banco():
+    """Função responsável por criar o banco de dados SQLite em memória,
+
+    definir a estrutura das tabelas e popular com no mínimo 30 registros
+    iniciais.
+    """
+    conn = sqlite3.connect(":memory:")
+    cursor = conn.cursor()
+
+    # Criação da Tabela Country
+    cursor.execute("""
+        CREATE TABLE country (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            population INTEGER,
+            area INTEGER
+        );
+    """)
+
+    # Criação da Tabela City
+    cursor.execute("""
+        CREATE TABLE city (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            country_id INTEGER,
+            population INTEGER,
+            rating INTEGER,
+            FOREIGN KEY (country_id) REFERENCES country (id) ON DELETE SET NULL
+        );
+    """)
+
+    # Criação das Tabelas Cycling e Skating
+    cursor.execute(
+        "CREATE TABLE cycling (id INTEGER PRIMARY KEY, name TEXT, country"
+        " TEXT);"
+    )
+    cursor.execute(
+        "CREATE TABLE skating (id INTEGER PRIMARY KEY, name TEXT, country"
+        " TEXT);"
+    )
+
+    # Inserção de 30 registros em Country
+    paises = [
+        (i, f"Pais_{i}", 1000000 + i * 500000, 50000 + i * 1000)
+        for i in range(1, 31)
+    ]
+    cursor.executemany(
+        "INSERT INTO country (id, name, population, area) VALUES (?, ?, ?, ?)",
+        paises,
+    )
+
+    # Inserção de 30 registros em City
+    cidades = [
+        (
+            i,
+            f"Cidade_{i}",
+            (i % 30) + 1,
+            200000 + i * 150000,
+            (i % 5) + 1 if i % 6 != 0 else None,
+        )
+        for i in range(1, 31)
+    ]
+    cursor.executemany(
+        """INSERT INTO city (id, name, country_id, population, rating) 
+                          VALUES (?, ?, ?, ?, ?)""",
+        cidades,
+    )
+
+    # Inserção de atletas
+    ciclismo = [
+        (1, "YK", "DE"),
+        (2, "ZG", "DE"),
+        (3, "WT", "PL"),
+        (4, "Hans", "DE"),
+        (5, "Marco", "IT"),
+    ]
+    cursor.executemany("INSERT INTO cycling VALUES (?, ?, ?)", ciclismo)
+
+    patinacao = [
+        (1, "YK", "DE"),
+        (2, "DF", "DE"),
+        (3, "AK", "PL"),
+        (4, "Hans", "DE"),
+        (5, "Sven", "SE"),
+    ]
+    cursor.executemany("INSERT INTO skating VALUES (?, ?, ?)", patinacao)
+
+    conn.commit()
+    return conn
+
+
+class AppSQLCompleto:
+    """Classe principal da Interface Gráfica com linhas divisórias de grade na
+
+    tabela de resultados.
+    """
+
+    def __init__(self, root, conn):
+        self.root = root
+        self.conn = conn
+        self.root.title("Gerenciador de Banco de Dados SQL - Cheat Sheet")
+        self.root.geometry("1100x750")
+        self.root.configure(bg="#F4F6F9")
+
+        # Aplicação de Estilos do TTK
+        self.setup_styles()
+
+        # Barra Superior de Título (Header)
+        self.header = tk.Frame(root, bg="#1E293B", height=60)
+        self.header.pack(fill="x", side="top")
+
+        lbl_header = tk.Label(
+            self.header,
+            text="📊 Painel Interativo SQL",
+            font=("Segoe UI", 16, "bold"),
+            fg="#FFFFFF",
+            bg="#1E293B",
+        )
+        lbl_header.pack(side="left", padx=20, pady=15)
+
+        # Controle de Abas
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(fill="both", expand=True, padx=20, pady=20)
+
+        self.tab_consultas = ttk.Frame(self.notebook, style="Card.TFrame")
+        self.tab_gerenciar = ttk.Frame(self.notebook, style="Card.TFrame")
+
+        self.notebook.add(
+            self.tab_consultas, text=" 🔍 Consultas SQL (Cheat Sheet) "
+        )
+        self.notebook.add(
+            self.tab_gerenciar, text=" ⚙️ Cadastrar & Eliminar Registros "
+        )
+
+        self.setup_tab_consultas()
+        self.setup_tab_gerenciar()
+
+    def setup_styles(self):
+        """Define o esquema de cores, fontes e bordas/linhas divisórias."""
+        style = ttk.Style()
+        style.theme_use("clam")
+
+        COLOR_BG = "#F4F6F9"
+        COLOR_PRIMARY = "#2563EB"
+        COLOR_DARK = "#1E293B"
+
+        style.configure("TNotebook", background=COLOR_BG, borderwidth=0)
+        style.configure(
+            "TNotebook.Tab",
+            font=("Segoe UI", 10, "bold"),
+            padding=[15, 8],
+            background="#E2E8F0",
+            foreground=COLOR_DARK,
+            bordercolor=COLOR_BG,
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", COLOR_PRIMARY)],
+            foreground=[("selected", "#FFFFFF")],
+        )
+
+        style.configure("Card.TFrame", background="#FFFFFF")
+
+        # Configuração das linhas divisórias da tabela (Treeview)
+        style.configure(
+            "Treeview",
+            font=("Segoe UI", 10),
+            rowheight=30,
+            background="#FFFFFF",
+            fieldbackground="#FFFFFF",
+            foreground="#334155",
+            borderwidth=1,
+            relief="solid",
+        )
+        style.configure(
+            "Treeview.Heading",
+            font=("Segoe UI", 10, "bold"),
+            background="#E2E8F0",
+            foreground=COLOR_DARK,
+            relief="solid",
+            borderwidth=1,
+        )
+        style.map("Treeview", background=[("selected", "#E0E7FF")])
+
+    def setup_tab_consultas(self):
+        """Configura os elementos visuais da Aba de Consultas SQL."""
+        frame_top = tk.Frame(self.tab_consultas, bg="#FFFFFF", pady=15, padx=20)
+        frame_top.pack(fill="x")
+
+        lbl = tk.Label(
+            frame_top,
+            text="Selecione um comando SQL para executar:",
+            font=("Segoe UI", 11, "bold"),
+            bg="#FFFFFF",
+            fg="#0F172A",
+        )
+        lbl.pack(anchor="w", pady=(0, 5))
+
+        self.queries = {
+            "1. SELECT - Selecionar Todos os Países": "SELECT * FROM country;",
+            "2. SELECT - Selecionar ID e Nome das Cidades": (
+                "SELECT id, name FROM city;"
+            ),
+            "3. ORDER BY - Cidades por Rating (Crescente)": (
+                "SELECT name, rating FROM city ORDER BY rating ASC;"
+            ),
+            "4. ORDER BY - Cidades por Rating (Decrescente)": (
+                "SELECT name, rating FROM city ORDER BY rating DESC;"
+            ),
+            "5. WHERE - Filtrar Cidades com Rating Maior que 3": (
+                "SELECT name, rating FROM city WHERE rating > 3;"
+            ),
+            "6. WHERE - Operadores Lógicos (AND / NOT)": (
+                "SELECT name FROM city WHERE name != 'Cidade_1' AND name !="
+                " 'Cidade_2';"
+            ),
+            "7. LIKE - Busca por Padrão de Texto ('Cidade_1%')": (
+                "SELECT name FROM city WHERE name LIKE 'Cidade_1%';"
+            ),
+            "8. BETWEEN - Filtro por Intervalo de População": (
+                "SELECT name, population FROM city WHERE population BETWEEN"
+                " 500000 AND 2000000;"
+            ),
+            "9. IS NOT NULL - Cidades com Rating Definido": (
+                "SELECT name, rating FROM city WHERE rating IS NOT NULL;"
+            ),
+            "10. IN - Cidades em Países Específicos (IDs 1, 4, 7, 8)": (
+                "SELECT name, country_id FROM city WHERE country_id IN (1, 4, 7,"
+                " 8);"
+            ),
+            "11. COUNT(*) - Contar Total de Cidades": (
+                "SELECT COUNT(*) AS total_cidades FROM city;"
+            ),
+            "12. COUNT(coluna) - Contar Valores Não Nulos": (
+                "SELECT COUNT(rating) AS cidades_com_rating FROM city;"
+            ),
+            "13. MIN e MAX - Menor e Maior População de País": (
+                "SELECT MIN(population) AS menor_pop, MAX(population) AS"
+                " maior_pop FROM country;"
+            ),
+            "14. SUM - Somatório da População por País": (
+                "SELECT country_id, SUM(population) AS total_pop FROM city"
+                " GROUP BY country_id;"
+            ),
+            "15. GROUP BY e HAVING - Média de Rating Acima de 3.0": (
+                "SELECT country_id, AVG(rating) AS avg_rating FROM city GROUP BY"
+                " country_id HAVING AVG(rating) > 3.0;"
+            ),
+            "16. SUBQUERY - Cidades com População Acima da Média": (
+                "SELECT name, population FROM city WHERE population > (SELECT"
+                " AVG(population) FROM city);"
+            ),
+            "17. SUBQUERY - Cidades em Países com População > 2M": (
+                "SELECT name FROM city WHERE country_id IN (SELECT id FROM"
+                " country WHERE population > 2000000);"
+            ),
+            "18. SUBQUERY CORRELACIONADA - População Maior que Média do Próprio"
+            " País": (
+                "SELECT * FROM city c1 WHERE population > (SELECT"
+                " AVG(population) FROM city c2 WHERE c2.country_id ="
+                " c1.country_id);"
+            ),
+            "19. EXISTS - Países que Têm Cidades Cadastradas": (
+                "SELECT name FROM country c WHERE EXISTS (SELECT 1 FROM city ci"
+                " WHERE ci.country_id = c.id);"
+            ),
+            "20. INNER JOIN - Cruzar Cidades com seus Países": (
+                "SELECT city.name AS cidade, country.name AS pais FROM city"
+                " INNER JOIN country ON city.country_id = country.id;"
+            ),
+            "21. LEFT JOIN - Todas as Cidades e Países Correspondentes": (
+                "SELECT city.name AS cidade, country.name AS pais FROM city LEFT"
+                " JOIN country ON city.country_id = country.id;"
+            ),
+            "22. CROSS JOIN - Produto Cartesiano entre Cidades e Países": (
+                "SELECT city.name, country.name FROM city CROSS JOIN country"
+                " LIMIT 20;"
+            ),
+            "23. UNION ALL - Unir Todos os Atletas (com duplicadas)": (
+                "SELECT name, country FROM cycling UNION ALL SELECT name,"
+                " country FROM skating;"
+            ),
+            "24. UNION - Unir Atletas Únicos (sem duplicadas)": (
+                "SELECT name, country FROM cycling UNION SELECT name, country"
+                " FROM skating;"
+            ),
+            "25. INTERSECT - Atletas que Praticam Ambos os Esportes": (
+                "SELECT name, country FROM cycling INTERSECT SELECT name,"
+                " country FROM skating;"
+            ),
+            "26. EXCEPT - Atletas do Ciclismo que NÃO Patinam": (
+                "SELECT name, country FROM cycling EXCEPT SELECT name, country"
+                " FROM skating;"
+            ),
+        }
+
+        self.combo_consultas = ttk.Combobox(
+            frame_top,
+            values=list(self.queries.keys()),
+            width=85,
+            state="readonly",
+            font=("Segoe UI", 10),
+        )
+        self.combo_consultas.current(0)
+        self.combo_consultas.pack(side="left", pady=5, padx=(0, 10))
+
+        btn_exec = tk.Button(
+            frame_top,
+            text="▶ Executar SQL",
+            command=self.executar_sql,
+            bg="#2563EB",
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            padx=15,
+            pady=4,
+            cursor="hand2",
+        )
+        btn_exec.pack(side="left")
+
+        frame_sql_info = tk.Frame(
+            self.tab_consultas, bg="#F1F5F9", padx=15, pady=8
+        )
+        frame_sql_info.pack(fill="x", padx=20, pady=(0, 10))
+
+        self.lbl_query = tk.Label(
+            frame_sql_info,
+            text="Aguardando comando...",
+            font=("Consolas", 10),
+            fg="#475569",
+            bg="#F1F5F9",
+            anchor="w",
+        )
+        self.lbl_query.pack(fill="x")
+
+        frame_table = tk.Frame(self.tab_consultas, bg="#FFFFFF")
+        frame_table.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+
+        self.tree = ttk.Treeview(frame_table, show="headings")
+
+        # Configura as tags de estilo para aplicar linhas Zebradas com bordas divisórias
+        self.tree.tag_configure("par", background="#FFFFFF")
+        self.tree.tag_configure("impar", background="#F8FAFC")
+
+        scrollbar_v = ttk.Scrollbar(
+            frame_table, orient="vertical", command=self.tree.yview
+        )
+        scrollbar_h = ttk.Scrollbar(
+            frame_table, orient="horizontal", command=self.tree.xview
+        )
+        self.tree.configure(
+            yscrollcommand=scrollbar_v.set, xscrollcommand=scrollbar_h.set
+        )
+
+        scrollbar_v.pack(side="right", fill="y")
+        scrollbar_h.pack(side="bottom", fill="x")
+        self.tree.pack(fill="both", expand=True)
+
+    def executar_sql(self):
+        """Executa a consulta selecionada e preenche as linhas da tabela."""
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        chave = self.combo_consultas.get()
+        sql = self.queries[chave]
+        self.lbl_query.config(text=f"SQL: {sql}")
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(sql)
+            linhas = cursor.fetchall()
+            colunas = [desc[0] for desc in cursor.description]
+
+            self.tree["columns"] = colunas
+            for col in colunas:
+                self.tree.heading(col, text=col.upper())
+                self.tree.column(col, anchor="center", width=160)
+
+            # Insere as linhas alternando as cores e destacando as divisões
+            for idx, linha in enumerate(linhas):
+                tag = "par" if idx % 2 == 0 else "impar"
+                self.tree.insert("", "end", values=linha, tags=(tag,))
+        except Exception as e:
+            messagebox.showerror("Erro SQL", f"Falha na execução: {str(e)}")
+
+    def setup_tab_gerenciar(self):
+        """Configura os elementos visuais da Aba de Gerenciamento de Dados."""
+        container = tk.Frame(self.tab_gerenciar, bg="#FFFFFF", padx=20, pady=20)
+        container.pack(fill="both", expand=True)
+
+        frame_cad = tk.LabelFrame(
+            container,
+            text=" ➕ Cadastrar Novo Registro ",
+            font=("Segoe UI", 11, "bold"),
+            bg="#FFFFFF",
+            fg="#1E293B",
+            padx=20,
+            pady=15,
+        )
+        frame_cad.pack(fill="x", pady=(0, 20))
+
+        tk.Label(
+            frame_cad,
+            text="Tabela Alvo:",
+            bg="#FFFFFF",
+            font=("Segoe UI", 10),
+        ).grid(row=0, column=0, sticky="w", pady=5)
+        self.combo_tab_cad = ttk.Combobox(
+            frame_cad, values=["city", "country"], state="readonly", width=25
+        )
+        self.combo_tab_cad.current(0)
+        self.combo_tab_cad.grid(row=0, column=1, sticky="w", pady=5)
+
+        tk.Label(
+            frame_cad, text="Nome:", bg="#FFFFFF", font=("Segoe UI", 10)
+        ).grid(row=1, column=0, sticky="w", pady=5)
+        self.ent_nome = ttk.Entry(frame_cad, width=28)
+        self.ent_nome.grid(row=1, column=1, sticky="w", pady=5)
+
+        tk.Label(
+            frame_cad, text="População:", bg="#FFFFFF", font=("Segoe UI", 10)
+        ).grid(row=2, column=0, sticky="w", pady=5)
+        self.ent_pop = ttk.Entry(frame_cad, width=28)
+        self.ent_pop.grid(row=2, column=1, sticky="w", pady=5)
+
+        tk.Label(
+            frame_cad,
+            text="Área (País) ou Country ID (Cidade):",
+            bg="#FFFFFF",
+            font=("Segoe UI", 10),
+        ).grid(row=3, column=0, sticky="w", pady=5)
+        self.ent_campo3 = ttk.Entry(frame_cad, width=28)
+        self.ent_campo3.grid(row=3, column=1, sticky="w", pady=5)
+
+        tk.Label(
+            frame_cad,
+            text="Rating (1-5, apenas Cidades):",
+            bg="#FFFFFF",
+            font=("Segoe UI", 10),
+        ).grid(row=4, column=0, sticky="w", pady=5)
+        self.ent_rating = ttk.Entry(frame_cad, width=28)
+        self.ent_rating.grid(row=4, column=1, sticky="w", pady=5)
+
+        btn_cad = tk.Button(
+            frame_cad,
+            text="Salvar Registro",
+            command=self.cadastrar,
+            bg="#16A34A",
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            padx=15,
+            pady=4,
+            cursor="hand2",
+        )
+        btn_cad.grid(row=5, column=0, columnspan=2, sticky="w", pady=15)
+
+        frame_del = tk.LabelFrame(
+            container,
+            text=" 🗑️ Eliminar Registro ",
+            font=("Segoe UI", 11, "bold"),
+            bg="#FFFFFF",
+            fg="#1E293B",
+            padx=20,
+            pady=15,
+        )
+        frame_del.pack(fill="x")
+
+        tk.Label(
+            frame_del, text="Tabela:", bg="#FFFFFF", font=("Segoe UI", 10)
+        ).grid(row=0, column=0, sticky="w", pady=5)
+        self.combo_tab_del = ttk.Combobox(
+            frame_del, values=["city", "country"], state="readonly", width=25
+        )
+        self.combo_tab_del.current(0)
+        self.combo_tab_del.grid(row=0, column=1, sticky="w", pady=5)
+
+        tk.Label(
+            frame_del,
+            text="ID do Registro:",
+            bg="#FFFFFF",
+            font=("Segoe UI", 10),
+        ).grid(row=1, column=0, sticky="w", pady=5)
+        self.ent_id_del = ttk.Entry(frame_del, width=28)
+        self.ent_id_del.grid(row=1, column=1, sticky="w", pady=5)
+
+        btn_del = tk.Button(
+            frame_del,
+            text="Excluir do Banco",
+            command=self.eliminar,
+            bg="#DC2626",
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            padx=15,
+            pady=4,
+            cursor="hand2",
+        )
+        btn_del.grid(row=2, column=0, columnspan=2, sticky="w", pady=15)
+
+    def cadastrar(self):
+        """Lógica de inserção de dados no SQLite."""
+        tabela = self.combo_tab_cad.get()
+        nome = self.ent_nome.get()
+        pop = self.ent_pop.get()
+        c3 = self.ent_campo3.get()
+
+        if not nome or not pop:
+            messagebox.showwarning(
+                "Aviso", "Preencha ao menos Nome e População."
+            )
+            return
+
+        try:
+            cursor = self.conn.cursor()
+            if tabela == "country":
+                cursor.execute(
+                    "INSERT INTO country (name, population, area) VALUES (?,"
+                    " ?, ?)",
+                    (nome, int(pop), int(c3) if c3 else 0),
+                )
+            else:
+                rating = self.ent_rating.get()
+                r_val = int(rating) if rating else None
+                cursor.execute(
+                    "INSERT INTO city (name, country_id, population, rating)"
+                    " VALUES (?, ?, ?, ?)",
+                    (nome, int(c3) if c3 else 1, int(pop), r_val),
+                )
+
+            self.conn.commit()
+            messagebox.showinfo(
+                "Sucesso", f"Registro inserido com sucesso em '{tabela}'!"
+            )
+
+            self.ent_nome.delete(0, tk.END)
+            self.ent_pop.delete(0, tk.END)
+            self.ent_campo3.delete(0, tk.END)
+            self.ent_rating.delete(0, tk.END)
+        except Exception as e:
+            messagebox.showerror("Erro ao Inserir", f"Erro: {str(e)}")
+
+    def eliminar(self):
+        """Lógica de remoção de registros no SQLite."""
+        tabela = self.combo_tab_del.get()
+        id_val = self.ent_id_del.get()
+
+        if not id_val.isdigit():
+            messagebox.showwarning(
+                "Aviso", "Digite um ID numérico válido para exclusão."
+            )
+            return
+
+        cursor = self.conn.cursor()
+        cursor.execute(f"DELETE FROM {tabela} WHERE id = ?", (int(id_val),))
+        self.conn.commit()
+
+        if cursor.rowcount > 0:
+            messagebox.showinfo(
+                "Sucesso",
+                f"O ID {id_val} foi removido com sucesso da tabela '{tabela}'.",
+            )
+            self.ent_id_del.delete(0, tk.END)
+        else:
+            messagebox.showwarning(
+                "Não Encontrado",
+                f"Nenhum registro com ID {id_val} encontrado em '{tabela}'.",
+            )
+
+
+if __name__ == "__main__":
+    conexao = inicializar_banco()
+    janela = tk.Tk()
+    app = AppSQLCompleto(janela, conexao)
+    janela.mainloop()
